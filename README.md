@@ -2,7 +2,7 @@
 
 A simple K8s operator for Memcached using Operator SDK in Go.
 
-The project is meant for learning purposes only. Not for production use.
+The project is meant for learning purposes only, using the course [IBM CO0201EN - Kubernetes Operators Intermediate](https://apps.cognitiveclass.ai/learning/course/course-v1:CognitiveClass+CO0201EN+v2/home). Thus, it is not meant for production use.
 
 
 ## Getting Started
