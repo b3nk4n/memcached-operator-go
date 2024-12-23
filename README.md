@@ -1,8 +1,9 @@
 # memcached-operator
-// TODO(user): Add simple overview of use/purpose
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+A simple K8s operator for Memcached using Operator SDK in Go.
+
+The project is meant for learning purposes only. Not for production use.
+
 
 ## Getting Started
 
@@ -11,6 +12,12 @@
 - docker version 17.03+.
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
+
+### Development
+
+You can run the operator as a program executing outside the Kubernetes cluster.
+This might be done for development purposes or for security concerns of the data contained in the cluster.
+The Makefile contains the target `make install run` to run the operator locally, if needed.
 
 ### To Deploy on the cluster
 **Build and push your image to the location specified by `IMG`:**
@@ -38,6 +45,14 @@ make deploy IMG=<some-registry>/memcached-operator:tag
 > **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
 privileges or be logged in as admin.
 
+You can then verify the created resources, such as using:
+
+```sh
+kubectl get crds
+kubectl --namespace memcached-operator-system get deployments
+kubectl --namespace memcached-operator-system get pods
+```
+
 **Create instances of your solution**
 You can apply the samples (examples) from the config/sample:
 
@@ -60,7 +75,7 @@ kubectl delete -k config/samples/
 make uninstall
 ```
 
-**UnDeploy the controller from the cluster:**
+**Un-deploy the controller from the cluster:**
 
 ```sh
 make undeploy
