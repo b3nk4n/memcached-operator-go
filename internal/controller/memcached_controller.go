@@ -31,7 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	cachev1alpha1 "github.com/b3nk4n/memcached-operator-go/api/v1alpha1"
 )
@@ -57,85 +57,80 @@ type MemcachedReconciler struct {
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.1/pkg/reconcile
-//
-// Please note that as of now, this is based on the reference implementation of the module from:
-// - https://github.com/operator-framework/operator-sdk/blob/efd1235e842032a3402e2c1ae6d9beb9ee86019a/testdata/go/v3/memcached-operator/controllers/memcached_controller.go
 func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := ctrllog.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
-	// Fetch the Memcached instance
+	// Fetch the Memcached object if it exists
 	memcached := &cachev1alpha1.Memcached{}
 	err := r.Get(ctx, req.NamespacedName, memcached)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
-			// Return and don't requeue
-			log.Info("Memcached resource not found. Ignoring since object must be deleted")
+			logger.Info("Memcached resource not found. Object must be deleted, and is therefore ignored.")
+			// Exit reconciliation, because resource has been deleted.
 			return ctrl.Result{}, nil
 		}
-		// Error reading the object - requeue the request.
-		log.Error(err, "Failed to get Memcached")
+
+		logger.Error(err, "Failed to fetch Memcached resource.")
+		// Requeue for reconciliation, because we were unable to fetch the resource.
 		return ctrl.Result{}, err
 	}
 
-	// Check if the deployment already exists, if not create a new one
+	// Fetch the Deployment object if it exists
 	found := &appsv1.Deployment{}
 	err = r.Get(ctx, types.NamespacedName{Name: memcached.Name, Namespace: memcached.Namespace}, found)
 	if err != nil && errors.IsNotFound(err) {
-		// Define a new deployment
 		dep := r.deploymentForMemcached(memcached)
-		log.Info("Creating a new Deployment", "Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
+		logger.Info("Creating a new Deployment", "Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
 		err = r.Create(ctx, dep)
 		if err != nil {
-			log.Error(err, "Failed to create new Deployment", "Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
+			logger.Error(err, "Failed to create new Deployment", "Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
 			return ctrl.Result{}, err
 		}
+
 		// Deployment created successfully - return and requeue
 		return ctrl.Result{Requeue: true}, nil
 	} else if err != nil {
-		log.Error(err, "Failed to get Deployment")
+		logger.Error(err, "Failed to fetch Deployment")
 		return ctrl.Result{}, err
 	}
 
-	// Ensure the deployment size is the same as the spec
+	// Ensure deployment replicas is the same as the memcached size
 	size := memcached.Spec.Size
 	if *found.Spec.Replicas != size {
 		found.Spec.Replicas = &size
 		err = r.Update(ctx, found)
 		if err != nil {
-			log.Error(err, "Failed to update Deployment", "Deployment.Namespace", found.Namespace, "Deployment.Name", found.Name)
+			logger.Error(err, "Failed to update Deployment", "Deployment.Namespace", found.Namespace, "Deployment.Name", found.Name)
 			return ctrl.Result{}, err
 		}
-		// Ask to requeue after 1 minute in order to give enough time for the
-		// pods be created on the cluster side and the operand be able
-		// to do the next update step accurately.
+		// Ask to requeue after 1 minute in order to give enough time for the pods be created on the cluster side
+		// and the operand be able to do the next update step accurately.
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
-	// Update the Memcached status with the pod names
-	// List the pods for this memcached's deployment
+	// Fetch pod names
 	podList := &corev1.PodList{}
 	listOpts := []client.ListOption{
 		client.InNamespace(memcached.Namespace),
 		client.MatchingLabels(labelsForMemcached(memcached.Name)),
 	}
 	if err = r.List(ctx, podList, listOpts...); err != nil {
-		log.Error(err, "Failed to list pods", "Memcached.Namespace", memcached.Namespace, "Memcached.Name", memcached.Name)
+		logger.Error(err, "Failed to list pods", "Memcached.Namespace", memcached.Namespace, "Memcached.Name", memcached.Name)
 		return ctrl.Result{}, err
 	}
-	podNames := getPodNames(podList.Items)
 
-	// Update status.Nodes if needed
+	// Update memcached nodes state with pod names
+	podNames := getPodNames(podList.Items)
 	if !reflect.DeepEqual(podNames, memcached.Status.Nodes) {
 		memcached.Status.Nodes = podNames
 		err := r.Status().Update(ctx, memcached)
 		if err != nil {
-			log.Error(err, "Failed to update Memcached status")
+			logger.Error(err, "Failed to update Memcached status")
 			return ctrl.Result{}, err
 		}
 	}
 
+	// Done: no further reconciliation needed.
 	return ctrl.Result{}, nil
 }
 
@@ -161,36 +156,36 @@ func (r *MemcachedReconciler) deploymentForMemcached(m *cachev1alpha1.Memcached)
 				Spec: corev1.PodSpec{
 					// Ensure restrictive standard for the Pod.
 					// More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: &[]bool{true}[0],
-						// Please ensure that you can use SeccompProfile and do NOT use
-						// this field if your project must work on old Kubernetes
-						// versions < 1.19 or on vendors versions which
-						// do NOT support this field by default (i.e. Openshift < 4.11)
-						SeccompProfile: &corev1.SeccompProfile{
-							Type: corev1.SeccompProfileTypeRuntimeDefault,
-						},
-					},
+					// SecurityContext: &corev1.PodSecurityContext{
+					// 	RunAsNonRoot: &[]bool{true}[0],
+					// 	// Please ensure that you can use SeccompProfile and do NOT use
+					// 	// this field if your project must work on old Kubernetes
+					// 	// versions < 1.19 or on vendors versions which
+					// 	// do NOT support this field by default (i.e. Openshift < 4.11)
+					// 	SeccompProfile: &corev1.SeccompProfile{
+					// 		Type: corev1.SeccompProfileTypeRuntimeDefault,
+					// 	},
+					// },
 					Containers: []corev1.Container{{
 						Image: "memcached:1.4.36-alpine",
 						Name:  "memcached",
 						// Ensure restrictive context for the container
 						// More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
-						SecurityContext: &corev1.SecurityContext{
-							RunAsNonRoot:             &[]bool{true}[0],
-							AllowPrivilegeEscalation: &[]bool{false}[0],
-							Capabilities: &corev1.Capabilities{
-								Drop: []corev1.Capability{
-									"ALL",
-								},
-							},
-							// The memcached image does not use a non-zero numeric user as the default user.
-							// Due to RunAsNonRoot field being set to true, we need to force the user in the
-							// container to a non-zero numeric user. We do this using the RunAsUser field.
-							// However, if you are looking to provide solution for K8s vendors like OpenShift
-							// be aware that you can not run under its restricted-v2 SCC if you set this value.
-							RunAsUser: &[]int64{1000}[0],
-						},
+						// SecurityContext: &corev1.SecurityContext{
+						// 	RunAsNonRoot:             &[]bool{true}[0],
+						// 	AllowPrivilegeEscalation: &[]bool{false}[0],
+						// 	Capabilities: &corev1.Capabilities{
+						// 		Drop: []corev1.Capability{
+						// 			"ALL",
+						// 		},
+						// 	},
+						// 	// The memcached image does not use a non-zero numeric user as the default user.
+						// 	// Due to RunAsNonRoot field being set to true, we need to force the user in the
+						// 	// container to a non-zero numeric user. We do this using the RunAsUser field.
+						// 	// However, if you are looking to provide solution for K8s vendors like OpenShift
+						// 	// be aware that you can not run under its restricted-v2 SCC if you set this value.
+						// 	RunAsUser: &[]int64{1000}[0],
+						// },
 						Command: []string{"memcached", "-m=64", "-o", "modern", "-v"},
 						Ports: []corev1.ContainerPort{{
 							ContainerPort: 11211,

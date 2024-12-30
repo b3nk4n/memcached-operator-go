@@ -104,12 +104,38 @@ Users can just run kubectl apply -f <URL for YAML BUNDLE> to install the project
 kubectl apply -f https://raw.githubusercontent.com/<org>/memcached-operator/<tag or branch>/dist/install.yaml
 ```
 
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
+## Create and install a bundle using OLM
 
-**NOTE:** Run `make help` for more information on all potential `make` targets
+Create a bundle:
 
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+```sh
+export DOCKERUSER=b3nk4n
+export VERSION=0.2.0
+export IMG=docker.io/$DOCKERUSER/memcached-operator:v$VERSION
+export BUNDLE_IMG=docker.io/$DOCKERUSER/memcached-operator-bundle:v$VERSION
+
+make bundle
+make bundle-build bundle-push
+```
+
+And verify that the bundle is correct:
+
+```sh
+operator-sdk bundle validate docker.io/$DOCKERUSER/memcached-operator-bundle:v$VERSION
+```
+
+And then use the following OLM commands to install the bundle (which can take a while):
+```sh
+operator-sdk olm status
+operator-sdk run bundle docker.io/$DOCKERUSER/memcached-operator-bundle:v$VERSION --timeout 30m
+operator-sdk olm status
+```
+
+## Key takeaways for writing Kubernetes Operators
+
+1. Information flows **in** from the requested object's `spec` and **out** to its `status`.
+2. You should iterate on reconciliation by doing a **single step** and then requeueing.
+
 
 ## License
 
