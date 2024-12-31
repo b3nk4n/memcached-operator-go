@@ -126,6 +126,7 @@ operator-sdk bundle validate docker.io/$DOCKERUSER/memcached-operator-bundle:v$V
 
 And then use the following OLM commands to install the bundle (which can take a while):
 ```sh
+operator-sdk olm install
 operator-sdk olm status
 operator-sdk run bundle docker.io/$DOCKERUSER/memcached-operator-bundle:v$VERSION --timeout 30m
 operator-sdk olm status
